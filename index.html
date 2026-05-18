@@ -620,41 +620,91 @@ function importDates(a) {
 // ===== SUMMARY =====
 function renderSummary() {
   const wrap = document.getElementById('summary-content');
-  wrap.innerHTML = '<h3 style="color:#c9a84c;margin-bottom:16px;padding:14px 14px 0;">📊 สรุปการเข้าร่วมกิจกรรม</h3>';
+
+  // นับจำนวนกิจกรรมที่มีวันที่แล้ว (ตัวส่วน)
+  let totalActs = 0;
+  for(let a = 1; a <= TOTAL_ACTIVITIES; a++) {
+    if(activityData[a] && activityData[a].dates.length > 0) totalActs++;
+  }
+
+  wrap.innerHTML = `
+    <div style="padding:14px 14px 8px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <h3 style="color:#c9a84c;">📊 สรุปการเข้าร่วมกิจกรรมรายบุคคล</h3>
+      <span style="font-size:12px;color:#888;">กิจกรรมทั้งหมด ${totalActs} ครั้ง</span>
+    </div>`;
+
+  if(totalActs === 0) {
+    wrap.innerHTML += `<div style="text-align:center;padding:40px;color:#555;">ยังไม่มีกิจกรรม — กรุณาเพิ่มวันที่ในแต่ละกิจกรรมก่อน</div>`;
+    return;
+  }
 
   DEPT_NAMES.forEach((deptName, d) => {
     const deptStudents = students.map((s, i) => ({...s, idx: i})).filter(s => s.dept === d);
     if(!deptStudents.length) return;
 
-    const card = document.createElement('div');
-    card.className = 'sum-dept-card';
-    card.style.borderColor = DEPT_COLORS[d] + '44';
+    // สร้าง section ต่อแผนก
+    const section = document.createElement('div');
+    section.style.cssText = 'margin:0 14px 20px;';
 
-    let headerHtml = `<div class="sum-dept-header" style="background:${DEPT_COLORS[d]}18;border-bottom:1px solid ${DEPT_COLORS[d]}33;">
-      <span style="color:${DEPT_COLORS[d]}">◆ ${deptName}</span>
-      <span style="font-size:12px;color:#888;">${deptStudents.length} คน</span>
-    </div>`;
+    // Department header
+    section.innerHTML = `
+      <div style="background:${DEPT_COLORS[d]}18;border:1px solid ${DEPT_COLORS[d]}44;border-bottom:none;border-radius:8px 8px 0 0;padding:8px 14px;display:flex;justify-content:space-between;align-items:center;">
+        <span style="color:${DEPT_COLORS[d]};font-weight:600;">◆ ${deptName}</span>
+        <span style="font-size:12px;color:#888;">${deptStudents.length} คน</span>
+      </div>`;
 
-    // Count across all activities
-    let totalIn = 0, totalFull = 0, totalAbsent = 0, totalActivities = 0;
-    for(let a = 1; a <= TOTAL_ACTIVITIES; a++) {
-      if(!activityData[a] || !activityData[a].dates.length) continue;
-      totalActivities++;
-      deptStudents.forEach(s => {
-        const st = activityData[a] ? (activityData[a].attendance[s.idx] || 0) : 0;
-        if(st === 1) totalIn++;
-        else if(st === 2) totalFull++;
-        else if(st === 3) totalAbsent++;
-      });
-    }
+    // Table
+    const tableWrap = document.createElement('div');
+    tableWrap.style.cssText = 'overflow-x:auto;border:1px solid ' + DEPT_COLORS[d] + '44;border-radius:0 0 8px 8px;';
 
-    card.innerHTML = headerHtml + `<div class="sum-stat">
-      <div class="sum-stat-item"><div class="val" style="color:#c9a84c">${totalActivities}</div><div class="lbl">กิจกรรม</div></div>
-      <div class="sum-stat-item"><div class="val" style="color:#4caf8a">${totalFull}</div><div class="lbl">ครบ ✓✓</div></div>
-      <div class="sum-stat-item"><div class="val" style="color:#e67e22">${totalIn}</div><div class="lbl">เข้าแล้ว ▶</div></div>
-      <div class="sum-stat-item"><div class="val" style="color:#e74c3c">${totalAbsent}</div><div class="lbl">ขาด ✗</div></div>
-    </div>`;
-    wrap.appendChild(card);
+    let tableHtml = `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="background:#0d1a35;">
+          <th style="padding:8px 10px;border:1px solid #c9a84c22;color:#c9a84c;width:36px;">ลำดับ</th>
+          <th style="padding:8px 10px;border:1px solid #c9a84c22;color:#c9a84c;text-align:left;min-width:160px;">ชื่อ – สกุล</th>
+          <th style="padding:8px 10px;border:1px solid #c9a84c22;color:#e67e22;">▶ เข้า</th>
+          <th style="padding:8px 10px;border:1px solid #c9a84c22;color:#4caf8a;">✓✓ ครบ</th>
+          <th style="padding:8px 10px;border:1px solid #c9a84c22;color:#e74c3c;">✗ ขาด</th>
+          <th style="padding:8px 10px;border:1px solid #c9a84c22;color:#c9a84c;">% เข้าร่วม</th>
+        </tr>
+      </thead><tbody>`;
+
+    deptStudents.forEach((s, rowIdx) => {
+      let cntIn = 0, cntFull = 0, cntAbsent = 0;
+      for(let a = 1; a <= TOTAL_ACTIVITIES; a++) {
+        if(!activityData[a] || !activityData[a].dates.length) continue;
+        const st = activityData[a].attendance[s.idx] || 0;
+        if(st === 1) cntIn++;
+        else if(st === 2) cntFull++;
+        else if(st === 3) cntAbsent++;
+      }
+
+      // % = ครบ (✓✓) / กิจกรรมทั้งหมด × 100
+      // เข้าแต่ไม่ออก (▶) นับครึ่ง — แล้วแต่จะปรับ
+      const pct = totalActs > 0 ? Math.round((cntFull / totalActs) * 100) : null;
+      let pctHtml;
+      if(pct === null || (cntIn === 0 && cntFull === 0 && cntAbsent === 0)) {
+        pctHtml = `<span style="color:#555;">—</span>`;
+      } else {
+        const color = pct >= 80 ? '#4caf8a' : pct >= 60 ? '#e67e22' : '#e74c3c';
+        pctHtml = `<span style="color:${color};font-weight:700;">${pct}%</span>`;
+      }
+
+      const rowBg = rowIdx % 2 === 0 ? '' : 'background:#c9a84c05;';
+      tableHtml += `<tr style="${rowBg}">
+        <td style="padding:6px 10px;border:1px solid #c9a84c11;text-align:center;color:#888;">${rowIdx + 1}</td>
+        <td style="padding:6px 10px;border:1px solid #c9a84c11;text-align:left;">${s.name}</td>
+        <td style="padding:6px 10px;border:1px solid #c9a84c11;text-align:center;color:#e67e22;">${cntIn || '—'}</td>
+        <td style="padding:6px 10px;border:1px solid #c9a84c11;text-align:center;color:#4caf8a;font-weight:${cntFull?'600':'400'};">${cntFull || '—'}</td>
+        <td style="padding:6px 10px;border:1px solid #c9a84c11;text-align:center;color:#e74c3c;">${cntAbsent || '—'}</td>
+        <td style="padding:6px 10px;border:1px solid #c9a84c11;text-align:center;">${pctHtml}</td>
+      </tr>`;
+    });
+
+    tableHtml += '</tbody></table>';
+    tableWrap.innerHTML = tableHtml;
+    section.appendChild(tableWrap);
+    wrap.appendChild(section);
   });
 }
 
