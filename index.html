@@ -743,7 +743,17 @@ async function runFaceLoop() {
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  if(results.length > 0) {
+  const regCount = Object.keys(faceDescriptors).length;
+
+  if(results.length === 0) {
+    if(faceMode === 'attend') {
+      if(regCount === 0) {
+        setFaceStatus('⚠️ ยังไม่มีใบหน้าลงทะเบียน — ไปที่ "📋 ลงทะเบียนใบหน้า" ก่อน');
+      } else {
+        setFaceStatus('🔍 กำลังหาใบหน้า... (ลงทะเบียนแล้ว ' + regCount + ' คน)');
+      }
+    }
+  } else {
     const mirrored = results.map(r => {
       const box = r.detection.box;
       return { ...r, mirroredBox: new faceapi.Box({ x: canvas.width - box.x - box.width, y: box.y, width: box.width, height: box.height }) };
@@ -757,7 +767,14 @@ async function runFaceLoop() {
 
       if(faceMode === 'attend') {
         const date = document.getElementById('sel-att-date').value;
-        if(!date) return;
+        if(!date) {
+          setFaceStatus('⚠️ ไม่พบวันที่ — ปิดแล้วเปิดใหม่เพื่อเลือกวันที่');
+          return;
+        }
+        if(regCount === 0) {
+          setFaceStatus('⚠️ ยังไม่มีใบหน้าลงทะเบียน');
+          return;
+        }
         const match = findBestFaceMatch(r.descriptor);
         if(match) {
           const key = match.idx;
@@ -767,16 +784,32 @@ async function runFaceLoop() {
           ctx.fillStyle = faceMarked[key] ? '#888' : (faceScanType === 'in' ? '#4caf8a' : '#e67e22');
           ctx.font = '14px Sarabun';
           ctx.fillText(match.name, box.x + 4, box.y - 6);
-          if(!faceMarked[key] && faceConfirmCount[key] >= 2) {
-            faceMarked[key] = true;
-            markFaceAttend(key, date);
+          if(!faceMarked[key]) {
+            const frames = faceConfirmCount[key];
+            setFaceStatus('👤 ' + match.name + ' — รอ ' + Math.max(0, 2 - frames) + ' เฟรม (dist: ' + match.dist.toFixed(2) + ')');
+            if(frames >= 2) {
+              faceMarked[key] = true;
+              markFaceAttend(key, date);
+            }
           }
         } else {
+          // ไม่รู้จัก — แสดง dist ที่ใกล้ที่สุดเพื่อ debug
+          let nearestDist = 1, nearestName = '';
+          Object.keys(faceDescriptors).forEach(k => {
+            const d = faceapi.euclideanDistance(r.descriptor, faceDescriptors[k]);
+            if(d < nearestDist) { nearestDist = d; nearestName = students[Number(k)]?.name || '?'; }
+          });
           ctx.fillStyle = 'rgba(0,0,0,0.6)';
           ctx.fillRect(box.x, box.y - 24, box.width, 24);
-          ctx.fillStyle = '#888';
+          ctx.fillStyle = '#e74c3c';
           ctx.font = '13px Sarabun';
           ctx.fillText('ไม่รู้จัก', box.x + 4, box.y - 6);
+          if(nearestDist < 1) {
+            setFaceStatus('❓ ไม่รู้จัก — ใกล้กับ "' + nearestName + '" สุด (dist: ' + nearestDist.toFixed(2) + ')');
+            addFaceLog('❓ ไม่รู้จัก — ใกล้ที่สุด: ' + nearestName + ' (' + nearestDist.toFixed(2) + ')', 'log-dup');
+          } else {
+            setFaceStatus('❓ ไม่รู้จัก — ไม่มีข้อมูลใบหน้าใกล้เคียง');
+          }
         }
       } else if(faceMode === 'register') {
         ctx.fillStyle = 'rgba(76,175,138,0.15)';
@@ -790,8 +823,9 @@ async function runFaceLoop() {
   faceDetectLoop = requestAnimationFrame(runFaceLoop);
 }
 
+// threshold 0.56 — กว้างขึ้นเล็กน้อยจาก 0.52 เพื่อรองรับแสงต่างกัน
 function findBestFaceMatch(descriptor) {
-  let best = null, bestDist = 0.52;
+  let best = null, bestDist = 0.56;
   Object.keys(faceDescriptors).forEach(k => {
     const dist = faceapi.euclideanDistance(descriptor, faceDescriptors[k]);
     if(dist < bestDist) { bestDist = dist; best = { idx: Number(k), name: students[Number(k)]?.name || '?', dist }; }
